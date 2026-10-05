@@ -1,0 +1,8 @@
+# Seedance 2.5 — Argolink
+
+- Model: seedance-2.5
+- Intent: n8n node and asynchronous video jobs
+- Model page: https://argolink.io/gh-seedance-2-5-n8n-node
+- API docs: https://argolink.io/gh-unified-api-docs
+- Examples: examples/request.sh, examples/client.py
+- Contract: docs/model-contract.md
