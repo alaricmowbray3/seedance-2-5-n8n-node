@@ -1,0 +1,449 @@
+{
+  "name": "Seedance 2.5 \u2014 resumable video job",
+  "nodes": [
+    {
+      "id": "745535d6-1026-43ba-8ecd-0ee519d85182",
+      "name": "Start",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "23233e32-8a66-489a-8276-c28a0afa9f11",
+      "name": "Configure",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        200,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// One video per execution. Set resume_request_id to poll an existing job.\nconst config = {\n  base_url: 'https://argolink.io/v1', resume_request_id: '',\n  poll_seconds: 10, timeout_seconds: 3600, max_polls: 240,\n  request: {model: 'seedance-2.5', prompt: 'A paper boat drifts across a rain puddle at dawn; low tracking camera, gentle ripples and natural water sound.', duration: 5, resolution: '720p', aspect_ratio: '16:9', generate_audio: true}\n};\nreturn [{json: config}];"
+      }
+    },
+    {
+      "id": "c6a12ee8-1b9b-4384-b4a6-7c6640e14ad2",
+      "name": "Resume existing?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        420,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1dd32aca-4824-4cee-8f53-8c7f0830de89",
+              "leftValue": "={{ $json.resume_request_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "4280b7cf-4749-4efd-9645-670f9bdda816",
+      "name": "Submit once",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        650,
+        140
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.base_url + '/videos/generations' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "seedance-2-5-n8n-node/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          }
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.request) }}"
+      },
+      "retryOnFail": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Video API bearer"
+        }
+      }
+    },
+    {
+      "id": "585a55fd-2072-45da-a264-de9362bd1918",
+      "name": "Remember job",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        870,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const config = $('Configure').first().json;\nconst response = $input.first().json;\nconst request_id = config.resume_request_id || response.request_id;\nif (typeof request_id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(request_id)) {\n  throw new Error('Missing or malformed request_id; inspect submit result before sending another POST');\n}\nreturn [{json: {base_url: config.base_url, request_id, polls: 0,\n  deadline_ms: Date.now() + config.timeout_seconds * 1000,\n  max_polls: config.max_polls, poll_seconds: config.poll_seconds, wait_seconds: config.poll_seconds}}];"
+      }
+    },
+    {
+      "id": "fca106f8-0109-4a91-b62d-ba43c8cbd8f9",
+      "name": "Wait before poll",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "resume": "timeInterval",
+        "amount": "={{ $json.wait_seconds }}",
+        "unit": "seconds"
+      },
+      "webhookId": "b2e650cb-e603-4aba-b468-d833682dff27"
+    },
+    {
+      "id": "6bf4d5fc-e854-442a-83fa-61ce8bb4d063",
+      "name": "Poll status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.base_url + '/videos/' + encodeURIComponent($json.request_id) }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "seedance-2-5-n8n-node/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "json",
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Video API bearer"
+        }
+      }
+    },
+    {
+      "id": "d80a15ca-b634-4e0c-add3-743566017192",
+      "name": "Inspect response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const prior = $('Wait before poll').item.json;\nconst response = $input.first().json;\nconst next = {...prior, polls: prior.polls + 1};\nconst body = response.body || {};\nconst code = Number(response.statusCode);\nif (code >= 200 && code < 300 && ['done', 'failed', 'expired'].includes(body.status)) {\n  return [{json: {...next, status: body.status, error: body.error || null, usage: body.usage || null}}];\n}\nif (Date.now() >= prior.deadline_ms || next.polls >= prior.max_polls) {\n  throw new Error(`Polling stopped for ${prior.request_id}; resume this ID, do not submit again`);\n}\nif (code === 429 || code === 503) {\n  const headers = response.headers || {};\n  const hint = headers['retry-after'] ?? headers['Retry-After'];\n  let seconds = Number(hint);\n  if (!Number.isFinite(seconds) && hint) seconds = (Date.parse(hint) - Date.now()) / 1000;\n  if (!Number.isFinite(seconds) || seconds < 0) seconds = prior.poll_seconds;\n  next.wait_seconds = Math.max(1, Math.ceil(seconds));\n  if (Date.now() + next.wait_seconds * 1000 >= prior.deadline_ms) {\n    throw new Error(`Retry-After exceeds deadline for ${prior.request_id}; resume later`);\n  }\n  return [{json: {...next, status: 'pending', retry_http_status: code}}];\n}\nif (!(code >= 200 && code < 300)) throw new Error(`Poll HTTP ${code} for ${prior.request_id}; inspect execution data`);\nif (body.status !== 'pending') throw new Error(`Unknown job status ${String(body.status)} for ${prior.request_id}`);\nreturn [{json: {...next, status: 'pending', wait_seconds: prior.poll_seconds}}];"
+      }
+    },
+    {
+      "id": "c718ca2a-96d6-41f8-be9e-410def713b7e",
+      "name": "Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1770,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b4ecbbed-c4e0-4355-ad9a-6ce49469fb6d",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "e5dc3695-b964-4204-9afe-19b79753752e",
+      "name": "Download MP4",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2000,
+        -140
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.base_url + '/videos/' + encodeURIComponent($json.request_id) + '/content' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "seedance-2-5-n8n-node/1.0"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 120000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "video"
+            }
+          }
+        }
+      },
+      "retryOnFail": false,
+      "credentials": {
+        "httpHeaderAuth": {
+          "name": "Video API bearer"
+        }
+      }
+    },
+    {
+      "id": "5af68846-d365-491d-ae83-2b27d6a2423f",
+      "name": "Pending?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2000,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "84168b21-9816-4cc3-b35c-e1907344e3e8",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "pending",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "a7cbe61b-238b-4c38-b1cf-5cddc4360787",
+      "name": "Stop terminal job",
+      "type": "n8n-nodes-base.stopAndError",
+      "typeVersion": 1,
+      "position": [
+        2240,
+        360
+      ],
+      "parameters": {
+        "errorMessage": "={{ 'Job ' + $json.request_id + ' ended as ' + $json.status + ': ' + JSON.stringify($json.error) }}"
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Configure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Configure": {
+      "main": [
+        [
+          {
+            "node": "Resume existing?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resume existing?": {
+      "main": [
+        [
+          {
+            "node": "Remember job",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Submit once",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit once": {
+      "main": [
+        [
+          {
+            "node": "Remember job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Remember job": {
+      "main": [
+        [
+          {
+            "node": "Wait before poll",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait before poll": {
+      "main": [
+        [
+          {
+            "node": "Poll status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Poll status": {
+      "main": [
+        [
+          {
+            "node": "Inspect response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inspect response": {
+      "main": [
+        [
+          {
+            "node": "Done?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Done?": {
+      "main": [
+        [
+          {
+            "node": "Download MP4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Pending?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pending?": {
+      "main": [
+        [
+          {
+            "node": "Wait before poll",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Stop terminal job",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveExecutionProgress": true
+  },
+  "tags": []
+}
